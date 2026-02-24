@@ -2,6 +2,7 @@
 
 from . import account_move
 from . import rma
+from . import rma_line
 from . import rma_finalization
 from . import rma_operation
 from . import rma_tag
@@ -13,3 +14,4 @@ from . import res_users
 from . import stock_move
 from . import stock_picking
 from . import stock_warehouse
+from . import sale
