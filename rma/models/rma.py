@@ -133,13 +133,13 @@ class Rma(models.Model):
         store=True,
         readonly=False,
     )
-    product_id = fields.Many2one(
-        comodel_name="product.product",
-        domain=[("type", "in", ["consu", "product"])],
-        compute="_compute_product_id",
-        store=True,
-        readonly=False,
-    )
+    # product_id = fields.Many2one(
+    #     comodel_name="product.product",
+    #     domain=[("type", "in", ["consu", "product"])],
+    #     compute="_compute_product_id",
+    #     store=True,
+    #     readonly=False,
+    # )
     product_uom_qty = fields.Float(
         string="Quantity",
         required=True,
@@ -149,15 +149,15 @@ class Rma(models.Model):
         store=True,
         readonly=False,
     )
-    product_uom = fields.Many2one(
-        comodel_name="uom.uom",
-        string="UoM",
-        required=True,
-        default=lambda self: self.env.ref("uom.product_uom_unit").id,
-        compute="_compute_product_uom",
-        store=True,
-        readonly=False,
-    )
+    # product_uom = fields.Many2one(
+    #     comodel_name="uom.uom",
+    #     string="UoM",
+    #     required=True,
+    #     default=lambda self: self.env.ref("uom.product_uom_unit").id,
+    #     compute="_compute_product_uom",
+    #     store=True,
+    #     readonly=False,
+    # )
     procurement_group_id = fields.Many2one(
         comodel_name="procurement.group",
         string="Procurement group",
@@ -230,8 +230,8 @@ class Rma(models.Model):
     )
     delivered_qty = fields.Float(
         digits="Product Unit of Measure",
-        compute="_compute_delivered_qty",
-        store=True,
+        #compute="_compute_delivered_qty",
+        #store=True,
     )
     can_be_returned = fields.Boolean(
         compute="_compute_can_be_returned",
@@ -250,9 +250,9 @@ class Rma(models.Model):
         digits="Product Unit of Measure",
         compute="_compute_remaining_qty",
     )
-    uom_category_id = fields.Many2one(
-        related="product_id.uom_id.category_id", string="Category UoM"
-    )
+    # uom_category_id = fields.Many2one(
+    #     related="product_id.uom_id.category_id", string="Category UoM"
+    # )
     # Split fields
     can_be_split = fields.Boolean(
         compute="_compute_can_be_split",
@@ -289,6 +289,107 @@ class Rma(models.Model):
         "without requiring further processing such as a receipt, "
         "delivery, or refund.",
     )
+
+    channel_id = fields.Char()
+
+    channel = fields.Selection([
+        ("shopify", "Shopify"),
+        ("pepperi", "Pepperi"),
+        ("commercehub", "CommerceHub")
+    ],
+        string="Canale"
+    )
+    note = fields.Text()
+
+    rma_invoice_count = fields.Integer(
+        string="Numero di fatture collegate all'RMA",
+        compute="_compute_rma_invoice_count"
+    )
+
+    line_ids = fields.One2many(
+        comodel_name='rma.line',
+        inverse_name='rma_id',
+        string='Line',
+        copy=False
+    )
+
+    currency_id = fields.Many2one(
+        comodel_name='res.currency',
+        ondelete='restrict',
+        string='Currency',
+        readonly=True,
+        copy=False
+    )
+
+    fiscal_position_id = fields.Many2one(
+        comodel_name='account.fiscal.position',
+        ondelete='set null',
+        string='Fiscal Position',
+        help="""Fiscal positions are used to adapt taxes and accounts for particular customers or sales orders/invoices.The default value comes from the customer.""",
+        copy=False
+    )
+
+    move_ids = fields.Many2many(
+        comodel_name='stock.move',
+        relation='rel_move_rma_table',
+        column1='rma_id',
+        column2='move_id',
+        string='Origin move',
+        copy=False
+    )
+
+    reception_move_ids = fields.Many2many(
+        comodel_name='stock.move',
+        relation='rel_rma_stock_move_table',
+        column1='rma_receiver_id',
+        column2='reception_id',
+        string='Reception move',
+        copy=False
+    )
+
+    sale_order_count = fields.Integer(
+        string='Sale Order Count',
+        compute='_compute_sale_order_count',
+    )
+
+    sale_order_ids = fields.One2many(
+        comodel_name='sale.order',
+        inverse_name='rma_id',
+        string='Sales Order',
+    )
+
+    show_update_fpos = fields.Boolean(
+        string='Has Fiscal Position Changed',
+        compute='_compute_show_update_fpos'
+    )
+
+    type_operation = fields.Selection(
+        related='operation_id.type_operation',
+        store=True
+    )
+
+    @api.depends('sale_order_ids')
+    def _compute_sale_order_count(self):
+        for rma_id in self:
+            rma_id.sale_order_count = len(rma_id.sale_order_ids)
+
+    @api.depends('fiscal_position_id')
+    def _compute_show_update_fpos(self):
+        for rma_id in self:
+            rma_id.show_update_fpos = False
+
+    def get_related_invoice_ids(self):
+        invoice_list = []
+        # TODO: Collect all invoices
+        # for ddt in self.reception_move_ids.ddt_ids:
+        #     inv_ddt = ddt.get_invoices()
+        #     if inv_ddt:
+        #         invoice_list +=inv_ddt
+        return invoice_list
+
+    def _compute_rma_invoice_count(self):
+        for rma in self:
+            rma.rma_invoice_count = len(rma.get_related_invoice_ids())
 
     @api.depends("operation_id", "reception_move_id.state")
     def _compute_manual_finish_allowed(self):
@@ -346,43 +447,43 @@ class Rma(models.Model):
         for rma in self:
             rma.delivery_picking_count = len(rma.delivery_move_ids.picking_id)
 
-    @api.depends(
-        "delivery_move_ids",
-        "delivery_move_ids.state",
-        "delivery_move_ids.scrapped",
-        "delivery_move_ids.product_uom_qty",
-        "delivery_move_ids.quantity",
-        "delivery_move_ids.product_uom",
-        "product_uom",
-    )
-    def _compute_delivered_qty(self):
-        """Compute 'delivered_qty' and 'delivered_qty_done' fields.
-
-        delivered_qty: represents the quantity delivery or to be
-        delivery. For each move in delivery_move_ids the quantity done
-        is taken, if it is empty the reserved quantity is taken,
-        otherwise the initial demand is taken.
-
-        delivered_qty_done: represents the quantity delivered and done.
-        For each 'done' move in delivery_move_ids the quantity done is
-        taken. This field is used to control when the RMA cam be set
-        to 'delivered' state.
-        """
-        for record in self:
-            delivered_qty = 0.0
-            for move in record.delivery_move_ids.filtered(
-                lambda r: r.state != "cancel" and not r.scrapped
-            ):
-                if move.quantity:
-                    quantity = move.product_uom._compute_quantity(
-                        move.quantity, record.product_uom
-                    )
-                    delivered_qty += quantity
-                elif move.product_uom_qty:
-                    delivered_qty += move.product_uom._compute_quantity(
-                        move.product_uom_qty, record.product_uom
-                    )
-            record.delivered_qty = delivered_qty
+    # @api.depends(
+    #     "delivery_move_ids",
+    #     "delivery_move_ids.state",
+    #     "delivery_move_ids.scrapped",
+    #     "delivery_move_ids.product_uom_qty",
+    #     "delivery_move_ids.quantity",
+    #     "delivery_move_ids.product_uom",
+    #     "product_uom",
+    # )
+    # def _compute_delivered_qty(self):
+    #     """Compute 'delivered_qty' and 'delivered_qty_done' fields.
+    #
+    #     delivered_qty: represents the quantity delivery or to be
+    #     delivery. For each move in delivery_move_ids the quantity done
+    #     is taken, if it is empty the reserved quantity is taken,
+    #     otherwise the initial demand is taken.
+    #
+    #     delivered_qty_done: represents the quantity delivered and done.
+    #     For each 'done' move in delivery_move_ids the quantity done is
+    #     taken. This field is used to control when the RMA cam be set
+    #     to 'delivered' state.
+    #     """
+    #     for record in self:
+    #         delivered_qty = 0.0
+    #         for move in record.delivery_move_ids.filtered(
+    #             lambda r: r.state != "cancel" and not r.scrapped
+    #         ):
+    #             if move.quantity:
+    #                 quantity = move.product_uom._compute_quantity(
+    #                     move.quantity, record.product_uom
+    #                 )
+    #                 delivered_qty += quantity
+    #             elif move.product_uom_qty:
+    #                 delivered_qty += move.product_uom._compute_quantity(
+    #                     move.product_uom_qty, record.product_uom
+    #                 )
+    #         record.delivered_qty = delivered_qty
 
     @api.depends("product_uom_qty", "delivered_qty")
     def _compute_remaining_qty(self):
@@ -548,11 +649,11 @@ class Rma(models.Model):
             if len(record.picking_id.move_ids) == 1:
                 record.move_id = record.picking_id.move_ids.id
 
-    @api.depends("move_id")
-    def _compute_product_id(self):
-        self.product_id = False
-        for record in self.filtered("move_id"):
-            record.product_id = record.move_id.product_id.id
+    # @api.depends("move_id")
+    # def _compute_product_id(self):
+    #     self.product_id = False
+    #     for record in self.filtered("move_id"):
+    #         record.product_id = record.move_id.product_id.id
 
     @api.depends("move_id")
     def _compute_product_uom_qty(self):
@@ -560,17 +661,21 @@ class Rma(models.Model):
         for record in self.filtered("move_id"):
             record.product_uom_qty = record.move_id.product_uom_qty
 
-    @api.depends("move_id", "product_id")
-    def _compute_product_uom(self):
-        for record in self:
-            if record.move_id:
-                record.product_uom = record.move_id.product_uom.id
-            elif record.product_id:
-                record.product_uom = record.product_id.uom_id
-            else:
-                record.product_uom = False
+    # @api.depends("move_id", "product_id")
+    # def _compute_product_uom(self):
+    #     for record in self:
+    #         if record.move_id:
+    #             record.product_uom = record.move_id.product_uom.id
+    #         elif record.product_id:
+    #             record.product_uom = record.product_id.uom_id
+    #         else:
+    #             record.product_uom = False
 
-    @api.depends("picking_id", "product_id", "company_id")
+    @api.depends(
+        "picking_id",
+        # "product_id",
+        "company_id"
+    )
     def _compute_location_id(self):
         for record in self:
             if record.picking_id:
@@ -593,7 +698,7 @@ class Rma(models.Model):
         "partner_id",
         "partner_shipping_id",
         "partner_invoice_id",
-        "product_id",
+        #"product_id",
     )
     def _check_required_after_draft(self):
         """Check that RMAs are being created or edited with the
@@ -711,10 +816,6 @@ class Rma(models.Model):
         if self.partner_id and self.partner_id not in self.message_partner_ids:
             self.message_subscribe([self.partner_id.id])
 
-    def _product_is_storable(self, product=None):
-        product = product or self.product_id
-        return product.type in ["product", "consu"]
-
     def _prepare_procurement_group_vals(self):
         return {
             "move_type": "direct",
@@ -756,34 +857,25 @@ class Rma(models.Model):
         procurements = []
         group_model = self.env["procurement.group"]
         for rma in self:
-            if not rma._product_is_storable():
-                continue
             group = rma.procurement_group_id
             if not group:
                 group = group_model.create(rma._prepare_procurement_group_vals())
-            product = self.product_id
-            if self.different_return_product:
-                if not self.return_product_id:
-                    raise ValidationError(
-                        _(
-                            "The selected operation requires a return product different"
-                            " from the originally delivered item. Please select the "
-                            "product to return."
-                        )
+            for rma_line in rma.line_ids:
+                if not rma_line._product_is_storable():
+                    continue
+                product = rma_line.product_id
+                procurements.append(
+                    group_model.Procurement(
+                        product,
+                        rma_line.qty,
+                        rma_line.product_uom,
+                        rma.location_id,
+                        product.display_name,
+                        group.name,
+                        rma.company_id,
+                        rma._prepare_reception_procurement_vals(group),
                     )
-                product = self.return_product_id
-            procurements.append(
-                group_model.Procurement(
-                    product,
-                    rma.product_uom_qty,
-                    rma.product_uom,
-                    rma.location_id,
-                    product.display_name,
-                    group.name,
-                    rma.company_id,
-                    rma._prepare_reception_procurement_vals(group),
                 )
-            )
         return procurements
 
     def _create_receipt(self):
@@ -1023,9 +1115,9 @@ class Rma(models.Model):
             "partner_id",
             "partner_shipping_id",
             "partner_invoice_id",
-            "product_id",
+            #"product_id",
             "location_id",
-            "operation_id",
+            #"operation_id",
         ]
         for record in self:
             desc = ""
@@ -1092,51 +1184,54 @@ class Rma(models.Model):
         """This method is intended to be invoked after confirm the wizard.
         invoked by: rma.create_return
         """
-        if qty and uom:
-            if uom != self.product_uom:
-                qty = uom._compute_quantity(qty, self.product_uom)
-            if qty > self.remaining_qty:
-                raise ValidationError(
-                    _("The quantity to return is greater than " "remaining quantity.")
-                )
+        # TODO: Check _ensure_qty_to_return
+        # if qty and uom:
+        #     if uom != self.product_uom:
+        #         qty = uom._compute_quantity(qty, self.product_uom)
+        #     if qty > self.remaining_qty:
+        #         raise ValidationError(
+        #             _("The quantity to return is greater than " "remaining quantity.")
+        #         )
 
     def _ensure_qty_to_extract(self, qty, uom):
         """This method is intended to be invoked after confirm the wizard.
         invoked by: rma.extract_quantity
         """
-        to_split_uom_qty = qty
-        if uom != self.product_uom:
-            to_split_uom_qty = uom._compute_quantity(qty, self.product_uom)
-        if to_split_uom_qty > self.remaining_qty:
-            raise ValidationError(
-                _(
-                    "Quantity to extract cannot be greater than remaining"
-                    " delivery quantity (%(remaining_qty)s %(product_uom)s)"
-                )
-                % (
-                    {
-                        "remaining_qty": self.remaining_qty,
-                        "product_uom": self.product_uom.name,
-                    }
-                )
-            )
+        # TODO: _ensure_qty_to_extract
+        # to_split_uom_qty = qty
+        # if uom != self.product_uom:
+        #     to_split_uom_qty = uom._compute_quantity(qty, self.product_uom)
+        # if to_split_uom_qty > self.remaining_qty:
+        #     raise ValidationError(
+        #         _(
+        #             "Quantity to extract cannot be greater than remaining"
+        #             " delivery quantity (%(remaining_qty)s %(product_uom)s)"
+        #         )
+        #         % (
+        #             {
+        #                 "remaining_qty": self.remaining_qty,
+        #                 "product_uom": self.product_uom.name,
+        #             }
+        #         )
+        #     )
 
     # Extract business methods
     def extract_quantity(self, qty, uom):
         self.ensure_one()
         self._ensure_can_be_split()
         self._ensure_qty_to_extract(qty, uom)
-        self.product_uom_qty -= uom._compute_quantity(qty, self.product_uom)
+        self.product_uom_qty -= qty
         if self.remaining_qty <= 0:
             if self.state == "waiting_return":
                 self.state = "returned"
             elif self.state == "waiting_replacement":
                 self.state = "replaced"
+        # TODO: Check if we need to copy the lines
         extracted_rma = self.copy(
             {
                 "origin": self.name,
                 "product_uom_qty": qty,
-                "product_uom": uom.id,
+#                "product_uom": uom.id,
                 "state": "received",
                 "reception_move_id": self.reception_move_id.id,
                 "origin_split_rma_id": self.id,
@@ -1189,10 +1284,10 @@ class Rma(models.Model):
         """
         self.ensure_one()
         return {
-            "product_id": self.product_id.id,
+            #"product_id": self.product_id.id,
             "quantity": self.product_uom_qty,
-            "product_uom_id": self.product_uom.id,
-            "price_unit": self.product_id.lst_price,
+            #"product_uom_id": self.product_uom.id,
+            #"price_unit": self.product_id.lst_price,
             "rma_id": self.id,
         }
 
@@ -1270,19 +1365,28 @@ class Rma(models.Model):
 
             vals = rma._prepare_delivery_procurement_vals(scheduled_date)
             group = vals.get("group_id")
-            procurements.append(
-                group_model.Procurement(
-                    rma.product_id,
-                    qty or rma.product_uom_qty,
-                    uom or rma.product_uom,
-                    rma.partner_shipping_id.property_stock_customer,
-                    rma.product_id.display_name,
-                    group.name,
-                    rma.company_id,
-                    vals,
+            for rma_line in rma.line_ids:
+                procurements.append(
+                    group_model.Procurement(
+                        rma_line.product_id,
+                        qty or rma_line.qty,
+                        uom or rma_line.product_uom,
+                        rma.partner_shipping_id.property_stock_customer,
+                        rma_line.product_id.display_name,
+                        group.name,
+                        rma.company_id,
+                        vals,
+                    )
                 )
-            )
         return procurements
+
+    # TODO: Replace this with a better implementation considering that we have multiple products
+    def _product_is_storable(self, product=None):
+        if product:
+            return product.type in ["product", "consu"]
+
+        self.ensure_one()
+        return any([line._product_is_storable() for line in self.line_ids])
 
     # Returning business methods
     def create_return(self, scheduled_date, qty=None, uom=None):
@@ -1399,24 +1503,25 @@ class Rma(models.Model):
         self.ensure_one()
         self.message_post(
             body=body
-            or Markup(
-                _(
-                    "Replacement:<br/>"
-                    'Product <a href="#" data-oe-model="product.product" '
-                    'data-oe-id="%(id)d">%(name)s</a><br/>'
-                    "Quantity %(qty)s %(uom)s<br/>"
-                    "This replacement did not create a new move, but one of "
-                    "the previously created moves was updated with this data."
-                )
-                % (
-                    {
-                        "id": self.product_id.id,
-                        "name": self.product_id.display_name,
-                        "qty": qty,
-                        "uom": uom.name,
-                    }
-                )
-            )
+            # TODO: Verify how to replace this line
+            # or Markup(
+            #     _(
+            #         "Replacement:<br/>"
+            #         'Product <a href="#" data-oe-model="product.product" '
+            #         'data-oe-id="%(id)d">%(name)s</a><br/>'
+            #         "Quantity %(qty)s %(uom)s<br/>"
+            #         "This replacement did not create a new move, but one of "
+            #         "the previously created moves was updated with this data."
+            #     )
+            #     % (
+            #         {
+            #             "id": self.product_id.id,
+            #             "name": self.product_id.display_name,
+            #             "qty": qty,
+            #             "uom": uom.name,
+            #         }
+            #     )
+            # )
         )
 
     # Mail business methods
@@ -1507,20 +1612,21 @@ class Rma(models.Model):
         """
         self.write({"state": "received"})
         self._send_receipt_confirmation_email()
-        for rec in self:
-            if rec.operation_id.action_create_delivery == "automatic_after_receipt":
-                rec.with_context(
-                    rma_return_grouping=rec.env.company.rma_return_grouping
-                ).create_replace(
-                    fields.Datetime.now(),
-                    rec.warehouse_id,
-                    rec.product_id,
-                    rec.product_uom_qty,
-                    rec.product_uom,
-                )
-
-            if rec.operation_id.action_create_refund == "automatic_after_receipt":
-                rec.action_refund()
+        # TODO: Implement the logic
+        # for rec in self:
+        #     if rec.operation_id.action_create_delivery == "automatic_after_receipt":
+        #         rec.with_context(
+        #             rma_return_grouping=rec.env.company.rma_return_grouping
+        #         ).create_replace(
+        #             fields.Datetime.now(),
+        #             rec.warehouse_id,
+        #             rec.product_id,
+        #             rec.product_uom_qty,
+        #             rec.product_uom,
+        #         )
+        #
+        #     if rec.operation_id.action_create_refund == "automatic_after_receipt":
+        #         rec.action_refund()
 
     def update_received_state(self):
         """Invoked by:
@@ -1568,3 +1674,11 @@ class Rma(models.Model):
             stacklevel=2,
         )
         return self._assign_delivery_procurement_group()
+
+    def action_update_taxes(self):
+        # TODO: Implement the functionality
+        pass
+
+    def show_rma_invoices(self):
+        # TODO: Implement the functionality
+        pass

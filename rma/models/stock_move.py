@@ -24,9 +24,17 @@ class StockMove(models.Model):
         string="RMA receivers",
         copy=False,
     )
+
     # RMA that creates the out move
     rma_id = fields.Many2one(
         comodel_name="rma", string="RMA return", copy=False, index=True
+    )
+
+    rma_line_id = fields.Many2one(
+        comodel_name='rma.line',
+        ondelete='set null',
+        string='RMA return',
+        copy=False
     )
 
     def unlink(self):

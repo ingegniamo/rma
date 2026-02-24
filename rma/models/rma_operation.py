@@ -67,6 +67,17 @@ class RmaOperation(models.Model):
         help="If enabled, RMAs using this operation will NOT be grouped into a "
         "single delivery picking, even if the company setting allows grouping.",
     )
+
+    type_operation = fields.Selection([
+        ('replace', 'Replace'),
+        ('refund', 'Refund'),
+        ('repair', 'Repair')
+    ],
+        string='Type Operation',
+        required=True,
+        copy=False
+    )
+
     _sql_constraints = [
         ("name_uniq", "unique (name)", "That operation name already exists !"),
     ]
