@@ -109,20 +109,12 @@
                             <td>Quantity</td>
                             <td>
                                 <span t-field="doc.product_uom_qty" />
-                                <span
-                                    t-field="doc.product_uom"
-                                    groups="uom.group_uom"
-                                />
                             </td>
                         </tr>
                         <tr t-if="doc.delivered_qty">
                             <td>Delivered Quantity</td>
                             <td>
                                 <span t-field="doc.delivered_qty" />
-                                <span
-                                    t-field="doc.product_uom"
-                                    groups="uom.group_uom"
-                                />
                             </td>
                         </tr>
                         <tr>
