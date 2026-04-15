@@ -447,43 +447,30 @@ class Rma(models.Model):
         for rma in self:
             rma.delivery_picking_count = len(rma.delivery_move_ids.picking_id)
 
-    # @api.depends(
-    #     "delivery_move_ids",
-    #     "delivery_move_ids.state",
-    #     "delivery_move_ids.scrapped",
-    #     "delivery_move_ids.product_uom_qty",
-    #     "delivery_move_ids.quantity",
-    #     "delivery_move_ids.product_uom",
-    #     "product_uom",
-    # )
-    # def _compute_delivered_qty(self):
-    #     """Compute 'delivered_qty' and 'delivered_qty_done' fields.
-    #
-    #     delivered_qty: represents the quantity delivery or to be
-    #     delivery. For each move in delivery_move_ids the quantity done
-    #     is taken, if it is empty the reserved quantity is taken,
-    #     otherwise the initial demand is taken.
-    #
-    #     delivered_qty_done: represents the quantity delivered and done.
-    #     For each 'done' move in delivery_move_ids the quantity done is
-    #     taken. This field is used to control when the RMA cam be set
-    #     to 'delivered' state.
-    #     """
-    #     for record in self:
-    #         delivered_qty = 0.0
-    #         for move in record.delivery_move_ids.filtered(
-    #             lambda r: r.state != "cancel" and not r.scrapped
-    #         ):
-    #             if move.quantity:
-    #                 quantity = move.product_uom._compute_quantity(
-    #                     move.quantity, record.product_uom
-    #                 )
-    #                 delivered_qty += quantity
-    #             elif move.product_uom_qty:
-    #                 delivered_qty += move.product_uom._compute_quantity(
-    #                     move.product_uom_qty, record.product_uom
-    #                 )
-    #         record.delivered_qty = delivered_qty
+    @api.depends(
+        "delivery_move_ids",
+        "delivery_move_ids.state",
+        "delivery_move_ids.scrapped",
+        "delivery_move_ids.quantity",
+        "delivery_move_ids.product_uom_qty",
+    )
+    def _compute_delivered_qty(self):
+        """Sum quantities across all delivery moves for this RMA.
+
+        For multi-line RMAs each line may carry a different product/UoM, so
+        quantities are summed as raw numbers (no UoM conversion).  The result
+        is only used to drive remaining_qty > 0 checks in the state machine.
+        """
+        for record in self:
+            delivered = 0.0
+            for move in record.delivery_move_ids.filtered(
+                lambda m: m.state != "cancel" and not m.scrapped
+            ):
+                if move.quantity:
+                    delivered += move.quantity
+                elif move.product_uom_qty:
+                    delivered += move.product_uom_qty
+            record.delivered_qty = delivered
 
     @api.depends("product_uom_qty", "delivered_qty")
     def _compute_remaining_qty(self):
@@ -655,11 +642,15 @@ class Rma(models.Model):
     #     for record in self.filtered("move_id"):
     #         record.product_id = record.move_id.product_id.id
 
-    @api.depends("move_id")
+    @api.depends("line_ids.qty", "move_id")
     def _compute_product_uom_qty(self):
-        self.product_uom_qty = False
-        for record in self.filtered("move_id"):
-            record.product_uom_qty = record.move_id.product_uom_qty
+        for record in self:
+            if record.line_ids:
+                record.product_uom_qty = sum(record.line_ids.mapped("qty"))
+            elif record.move_id:
+                record.product_uom_qty = record.move_id.product_uom_qty
+            else:
+                record.product_uom_qty = 0.0
 
     # @api.depends("move_id", "product_id")
     # def _compute_product_uom(self):
@@ -941,9 +932,10 @@ class Rma(models.Model):
             origin = ", ".join(rmas.mapped("name"))
             refund_vals = rmas[0]._prepare_refund_vals(origin)
             for rma in rmas:
-                refund_vals["invoice_line_ids"].append(
-                    (0, 0, rma._prepare_refund_line_vals())
-                )
+                for rma_line in rma.line_ids:
+                    refund_vals["invoice_line_ids"].append(
+                        (0, 0, rma._prepare_refund_line_vals(rma_line))
+                    )
             refund = self.env["account.move"].sudo().create(refund_vals)
             refund.with_user(self.env.uid).message_post_with_source(
                 "mail.message_origin_link",
@@ -1273,23 +1265,30 @@ class Rma(models.Model):
             "invoice_line_ids": [],
         }
 
-    def _prepare_refund_line_vals(self):
-        """Hook method for preparing a refund line Form.
+    def _prepare_refund_line_vals(self, rma_line):
+        """Hook method for preparing a refund line.
 
-        This method could be override in order to add new custom field
-        values in the refund line creation.
+        Takes a single rma.line record and returns the vals dict for one
+        account.move.line on the credit note.
 
         invoked by:
         rma.action_refund
         """
         self.ensure_one()
-        return {
-            #"product_id": self.product_id.id,
-            "quantity": self.product_uom_qty,
-            #"product_uom_id": self.product_uom.id,
-            #"price_unit": self.product_id.lst_price,
+        vals = {
+            "product_id": rma_line.product_id.id,
+            "quantity": rma_line.qty,
             "rma_id": self.id,
         }
+        if rma_line.product_uom:
+            vals["product_uom_id"] = rma_line.product_uom.id
+        if rma_line.price_unit:
+            vals["price_unit"] = rma_line.price_unit
+        if rma_line.discount:
+            vals["discount"] = rma_line.discount
+        if rma_line.tax_ids:
+            vals["tax_ids"] = [(6, 0, rma_line.tax_ids.ids)]
+        return vals
 
     def _delivery_should_be_grouped(self):
         """Checks if the rmas should be grouped for the delivery process"""
