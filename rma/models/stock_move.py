@@ -74,7 +74,7 @@ class StockMove(models.Model):
                 rma_receiver
                 and float_compare(
                     move.quantity,
-                    rma_receiver.product_uom_qty,
+                    move.product_uom_qty,
                     precision_digits=qty_prec,
                 )
                 != 0
@@ -88,7 +88,7 @@ class StockMove(models.Model):
                     % (
                         {
                             "id": move.product_id.name,
-                            "name": move.rma_receiver_ids.name,
+                            "name": move.rma_receiver_ids[:1].name,
                         }
                     )
                 )

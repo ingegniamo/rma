@@ -11,21 +11,25 @@ class AccountMove(models.Model):
 
     def _check_rma_invoice_lines_qty(self):
         """We can't refund a different qty than the stated in the RMA.
-        Extend to change criteria"""
+        Extend to change criteria.
+
+        For multi-line RMAs the check is done at the RMA level: the sum of all
+        invoice lines linked to a given RMA must cover the total RMA quantity.
+        For single-line RMAs the individual invoice line qty is checked directly.
+        """
         precision = self.env["decimal.precision"].precision_get(
             "Product Unit of Measure"
         )
-        return (
-            self.sudo()
-            .mapped("invoice_line_ids")
-            .filtered(
-                lambda r: (
-                    r.rma_id
-                    and float_compare(r.quantity, r.rma_id.product_uom_qty, precision)
-                    < 0
-                )
-            )
-        )
+        rma_totals = {}
+        for line in self.sudo().mapped("invoice_line_ids").filtered("rma_id"):
+            rma = line.rma_id
+            rma_totals.setdefault(rma, 0.0)
+            rma_totals[rma] += line.quantity
+        return [
+            rma
+            for rma, total_qty in rma_totals.items()
+            if float_compare(total_qty, rma.product_uom_qty, precision) < 0
+        ]
 
     def action_post(self):
         """Avoids to validate a refund with less quantity of product than

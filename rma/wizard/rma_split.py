@@ -37,9 +37,11 @@ class RmaReSplitWizard(models.TransientModel):
         res = super().fields_get(allfields, attributes=attributes)
         rma_id = self.env.context.get("active_id")
         rma = self.env["rma"].browse(rma_id)
-        res["product_uom"]["domain"] = [
-            ("category_id", "=", rma.product_uom.category_id.id)
-        ]
+        first_uom = rma.line_ids[:1].product_uom
+        if first_uom:
+            res["product_uom"]["domain"] = [
+                ("category_id", "=", first_uom.category_id.id)
+            ]
         return res
 
     @api.model
@@ -50,7 +52,7 @@ class RmaReSplitWizard(models.TransientModel):
         res.update(
             rma_id=rma.id,
             product_uom_qty=rma.remaining_qty,
-            product_uom=rma.product_uom.id,
+            product_uom=rma.line_ids[:1].product_uom.id,
         )
         return res
 

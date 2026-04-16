@@ -139,12 +139,12 @@ class Rma(models.Model):
             vals["invoice_user_id"] = self.order_id.user_id.id
         return vals
 
-    def _prepare_refund_line_vals(self):
+    def _prepare_refund_line_vals(self, rma_line):
         """Add line data and link to the sales order, only if the RMA is for the whole
         move quantity. In other cases, incorrect delivered/invoiced quantities will be
         logged on the sales order, so better to let the operations not linked.
         """
-        vals = super()._prepare_refund_line_vals()
+        vals = super()._prepare_refund_line_vals(rma_line)
         line = self.sale_line_id
         if line:
             vals["product_id"] = line.product_id.id

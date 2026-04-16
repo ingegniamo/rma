@@ -230,8 +230,8 @@ class Rma(models.Model):
     )
     delivered_qty = fields.Float(
         digits="Product Unit of Measure",
-        #compute="_compute_delivered_qty",
-        #store=True,
+        compute="_compute_delivered_qty",
+        store=True,
     )
     can_be_returned = fields.Boolean(
         compute="_compute_can_be_returned",
@@ -391,27 +391,33 @@ class Rma(models.Model):
         for rma in self:
             rma.rma_invoice_count = len(rma.get_related_invoice_ids())
 
-    @api.depends("operation_id", "reception_move_id.state")
+    @api.depends("operation_id", "reception_move_ids.state", "reception_move_id.state")
     def _compute_manual_finish_allowed(self):
         """
         compute whether the RMA requires any follow-up action based on the
         operation configuration
         """
         for rma in self:
+            reception_moves = rma.reception_move_ids or rma.reception_move_id
+            reception_pending = bool(
+                rma.operation_id.action_create_receipt
+                and any(m.state != "done" for m in reception_moves)
+            )
             rma.manual_finish_allowed = (
-                (
-                    rma.operation_id.action_create_receipt
-                    and rma.reception_move_id.state != "done"
-                )
+                reception_pending
                 or rma.operation_id.action_create_delivery
                 or rma.operation_id.action_create_refund
             )
 
-    @api.depends("operation_id.action_create_receipt", "state", "reception_move_id")
+    @api.depends(
+        "operation_id.action_create_receipt", "state",
+        "reception_move_id", "reception_move_ids",
+    )
     def _compute_show_create_receipt(self):
         for rec in self:
             rec.show_create_receipt = (
-                not rec.reception_move_id
+                not rec.reception_move_ids
+                and not rec.reception_move_id
                 and rec.operation_id.action_create_receipt == "manual_on_confirm"
                 and rec.state == "confirmed"
             )
@@ -448,28 +454,25 @@ class Rma(models.Model):
             rma.delivery_picking_count = len(rma.delivery_move_ids.picking_id)
 
     @api.depends(
-        "delivery_move_ids",
         "delivery_move_ids.state",
         "delivery_move_ids.scrapped",
         "delivery_move_ids.quantity",
-        "delivery_move_ids.product_uom_qty",
     )
     def _compute_delivered_qty(self):
-        """Sum quantities across all delivery moves for this RMA.
+        """Sum done quantities across all delivery moves for this RMA.
 
-        For multi-line RMAs each line may carry a different product/UoM, so
-        quantities are summed as raw numbers (no UoM conversion).  The result
-        is only used to drive remaining_qty > 0 checks in the state machine.
+        Only counts moves in state 'done' so that remaining_qty correctly
+        reflects what has actually been sent/returned, not just what is
+        reserved.  For multi-line RMAs quantities are summed as raw numbers
+        (no UoM conversion) — the result drives remaining_qty > 0 checks
+        in the state machine.
         """
         for record in self:
             delivered = 0.0
             for move in record.delivery_move_ids.filtered(
-                lambda m: m.state != "cancel" and not m.scrapped
+                lambda m: m.state == "done" and not m.scrapped
             ):
-                if move.quantity:
-                    delivered += move.quantity
-                elif move.product_uom_qty:
-                    delivered += move.product_uom_qty
+                delivered += move.quantity
             record.delivered_qty = delivered
 
     @api.depends("product_uom_qty", "delivered_qty")
@@ -570,9 +573,15 @@ class Rma(models.Model):
         rma._ensure_can_be_split
         """
         for r in self:
-            if r.product_uom_qty > 1 and (
-                (r.state == "waiting_return" and r.remaining_qty > 0)
-                or (r.state == "waiting_replacement" and r.remaining_qty > 0)
+            # Split only makes sense for single-line RMAs (one product, qty > 1).
+            # For multi-line RMAs each product is already its own line.
+            if (
+                len(r.line_ids) <= 1
+                and r.product_uom_qty > 1
+                and (
+                    (r.state == "waiting_return" and r.remaining_qty > 0)
+                    or (r.state == "waiting_replacement" and r.remaining_qty > 0)
+                )
             ):
                 r.can_be_split = True
             else:
@@ -870,18 +879,33 @@ class Rma(models.Model):
         return procurements
 
     def _create_receipt(self):
+        self.ensure_one()
         procurements = self._prepare_reception_procurements()
         if procurements:
             self.env["procurement.group"].run(procurements)
-        self.reception_move_id.picking_id.action_assign()
+        # Collect all reception moves created via the procurement group and
+        # populate the Many2many so the rest of the code can find them all.
+        reception_moves = self.env["stock.move"].search([
+            ("group_id", "=", self.procurement_group_id.id),
+            ("location_dest_id", "child_of", self.location_id.id),
+            ("state", "not in", ["done", "cancel"]),
+        ])
+        if reception_moves:
+            self.reception_move_ids = [(4, m.id) for m in reception_moves]
+        # Assign reservation and optionally auto-confirm
+        self.reception_move_ids.picking_id.action_assign()
         if self.operation_id.auto_confirm_reception:
-            self.reception_move_id.picked = True
-            self.reception_move_id._action_done()
+            self.reception_move_ids.write({"picked": True})
+            self.reception_move_ids._action_done()
 
     def action_create_receipt(self):
         self.ensure_one()
         self._create_receipt()
         self.ensure_one()
+        picking = (
+            self.reception_move_ids[:1].picking_id
+            or self.reception_move_id.picking_id
+        )
         return {
             "name": _("Receipt"),
             "type": "ir.actions.act_window",
@@ -889,7 +913,7 @@ class Rma(models.Model):
             "view_mode": "form",
             "res_model": "stock.picking",
             "views": [[False, "form"]],
-            "res_id": self.reception_move_id.picking_id.id,
+            "res_id": picking.id,
         }
 
     def action_confirm(self):
@@ -912,9 +936,9 @@ class Rma(models.Model):
                 ).create_replace(
                     fields.Datetime.now(),
                     rec.warehouse_id,
-                    rec.product_id,
-                    rec.product_uom_qty,
-                    rec.product_uom,
+                    False,
+                    0.0,
+                    False,
                 )
             if rec.operation_id.action_create_refund == "automatic_on_confirm":
                 rec.action_refund()
@@ -1007,9 +1031,10 @@ class Rma(models.Model):
         if not self.manual_finish_allowed:
             self.state = "finished"
             return {}
+        all_reception_moves = self.reception_move_ids | self.reception_move_id
         if (
             self.operation_id.action_create_receipt
-            and self.reception_move_id.state != "done"
+            and any(m.state != "done" for m in all_reception_moves)
         ):
             raise ValidationError(
                 _("The reception must be done before finishing this rma")
@@ -1026,7 +1051,7 @@ class Rma(models.Model):
 
     def action_cancel(self):
         """Invoked when 'Cancel' button in rma form view is clicked."""
-        self.reception_move_id._action_cancel()
+        (self.reception_move_ids | self.reception_move_id)._action_cancel()
         self.write({"state": "cancelled"})
 
     def action_draft(self):
@@ -1071,7 +1096,10 @@ class Rma(models.Model):
 
     def action_view_receipt(self):
         """Invoked when 'Receipt' smart button in rma form view is clicked."""
-        return self._action_view_pickings(self.mapped("reception_move_id.picking_id"))
+        pickings = self.mapped("reception_move_ids.picking_id") | self.mapped(
+            "reception_move_id.picking_id"
+        )
+        return self._action_view_pickings(pickings)
 
     def action_view_refund(self):
         """Invoked when 'Refund' smart button in rma form view is clicked."""
@@ -1112,6 +1140,10 @@ class Rma(models.Model):
             #"operation_id",
         ]
         for record in self:
+            if not record.line_ids:
+                raise ValidationError(
+                    _("At least one product line is required before confirming the RMA.")
+                )
             desc = ""
             for field in filter(lambda item: not record[item], required):
                 field_record = (
@@ -1349,7 +1381,8 @@ class Rma(models.Model):
         vals = self._prepare_common_procurement_vals(scheduled_date=scheduled_date)
         vals["rma_id"] = self.id
         vals["route_ids"] = self.warehouse_id.rma_out_route_id
-        vals["move_orig_ids"] = [(6, 0, self.reception_move_id.ids)]
+        all_recv_moves = self.reception_move_ids | self.reception_move_id
+        vals["move_orig_ids"] = [(6, 0, all_recv_moves.ids)]
         return vals
 
     def _prepare_delivery_procurements(self, scheduled_date=None, qty=None, uom=None):
@@ -1437,9 +1470,6 @@ class Rma(models.Model):
         procurements = []
         group_model = self.env["procurement.group"]
         for rma in self:
-            if not rma._product_is_storable(product):
-                continue
-
             if not rma.procurement_group_id:
                 rma.procurement_group_id = group_model.create(
                     rma._prepare_procurement_group_vals()
@@ -1447,18 +1477,40 @@ class Rma(models.Model):
 
             vals = rma._prepare_replace_procurement_vals(warehouse, scheduled_date)
             group = vals.get("group_id")
-            procurements.append(
-                group_model.Procurement(
-                    product,
-                    qty,
-                    uom,
-                    rma.partner_shipping_id.property_stock_customer,
-                    product.display_name,
-                    group.name,
-                    rma.company_id,
-                    vals,
+
+            if product:
+                # Explicit replacement product (e.g. different item than originally sent)
+                if not rma._product_is_storable(product):
+                    continue
+                procurements.append(
+                    group_model.Procurement(
+                        product,
+                        qty,
+                        uom,
+                        rma.partner_shipping_id.property_stock_customer,
+                        product.display_name,
+                        group.name,
+                        rma.company_id,
+                        vals,
+                    )
                 )
-            )
+            else:
+                # No override: send back one move per line (same product/qty as received)
+                for rma_line in rma.line_ids:
+                    if not rma_line._product_is_storable():
+                        continue
+                    procurements.append(
+                        group_model.Procurement(
+                            rma_line.product_id,
+                            qty or rma_line.qty,
+                            uom or rma_line.product_uom,
+                            rma.partner_shipping_id.property_stock_customer,
+                            rma_line.product_id.display_name,
+                            group.name,
+                            rma.company_id,
+                            vals,
+                        )
+                    )
         return procurements
 
     # Replacing business methods
@@ -1609,7 +1661,14 @@ class Rma(models.Model):
         Here we can attach methods to trigger when the customer products
         are received on the RMA location, such as automatic notifications
         """
-        self.write({"state": "received"})
+        fully_received = self.filtered(
+            lambda r: all(
+                m.state == "done"
+                for m in (r.reception_move_ids | r.reception_move_id)
+                if m
+            )
+        )
+        fully_received.write({"state": "received"})
         self._send_receipt_confirmation_email()
         # TODO: Implement the logic
         # for rec in self:

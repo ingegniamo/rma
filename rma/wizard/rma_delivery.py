@@ -54,10 +54,10 @@ class RmaReDeliveryWizard(models.TransientModel):
         )
         delivery_type = self.env.context.get("rma_delivery_type")
         product_id = False
-        if len(rma) == 1 and delivery_type == "return":
-            product_id = rma.product_id.id
+        if len(rma) == 1 and delivery_type == "return" and len(rma.line_ids) == 1:
+            product_id = rma.line_ids.product_id.id
         product_uom_qty = 0.0
-        if len(rma) == 1 and rma.remaining_qty > 0.0:
+        if len(rma) == 1 and len(rma.line_ids) == 1 and rma.remaining_qty > 0.0:
             product_uom_qty = rma.remaining_qty
         res.update(
             rma_count=len(rma),
@@ -88,7 +88,7 @@ class RmaReDeliveryWizard(models.TransientModel):
             )
         elif self.type == "return":
             qty = uom = None
-            if self.rma_count == 1:
+            if self.rma_count == 1 and len(rma.line_ids) == 1:
                 qty, uom = self.product_uom_qty, self.product_uom
             rma.with_context(
                 rma_return_grouping=self.rma_return_grouping

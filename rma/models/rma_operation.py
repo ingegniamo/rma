@@ -74,7 +74,6 @@ class RmaOperation(models.Model):
         ('repair', 'Repair')
     ],
         string='Type Operation',
-        required=True,
         copy=False
     )
 
