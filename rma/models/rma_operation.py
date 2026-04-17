@@ -125,7 +125,6 @@ class RmaOperation(models.Model):
         action["display_name"] = name
         context = {
             "search_default_operation_id": [self.id],
-            "default_operation_id": self.id,
         }
         action_context = literal_eval(action["context"])
         context = {**action_context, **context}
