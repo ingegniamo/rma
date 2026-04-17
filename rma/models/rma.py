@@ -1514,6 +1514,40 @@ class Rma(models.Model):
         return procurements
 
     # Replacing business methods
+    def create_replace_from_wizard_lines(self, scheduled_date, warehouse, wizard_lines):
+        """Invoked by the delivery wizard when replacing with multiple lines."""
+        self.ensure_one()
+        self._ensure_can_be_replaced()
+        moves_before = self.delivery_move_ids
+        all_procurements = []
+        for line in wizard_lines:
+            all_procurements += self._prepare_replace_procurements(
+                warehouse, scheduled_date, line.product_id, line.qty, line.product_uom
+            )
+        if all_procurements:
+            self.env["procurement.group"].run(all_procurements)
+        new_moves = self.delivery_move_ids - moves_before
+        body = ""
+        for new_move in new_moves:
+            body += Markup(
+                _(
+                    'Replacement: Move <a href="#" data-oe-model="stock.move"'
+                    ' data-oe-id="%(move_id)d">%(move_name)s</a> (Picking <a'
+                    ' href="#" data-oe-model="stock.picking"'
+                    ' data-oe-id="%(picking_id)d"> %(picking_name)s</a>) has'
+                    " been created."
+                )
+                % {
+                    "move_id": new_move.id,
+                    "move_name": new_move.display_name,
+                    "picking_id": new_move.picking_id.id,
+                    "picking_name": new_move.picking_id.name,
+                }
+                + "\n"
+            )
+        self._add_replace_message(body, None, None)
+        self.write({"state": "waiting_replacement"})
+
     def create_replace(self, scheduled_date, warehouse, product, qty, uom):
         """Intended to be invoked by the delivery wizard"""
         self._ensure_can_be_replaced()

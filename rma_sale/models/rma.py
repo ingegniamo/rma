@@ -41,6 +41,7 @@ class Rma(models.Model):
         compute="_compute_allowed_product_ids",
     )
     product_id = fields.Many2one(
+        comodel_name="product.product",
         domain="order_id and [('id', 'in', allowed_product_ids)] or "
         "[('type', 'in', ['consu', 'product'])]"
     )

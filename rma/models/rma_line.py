@@ -121,6 +121,11 @@ class RmaLine(models.Model):
         store=True
     )
 
+    @api.onchange('product_id')
+    def _onchange_product_id_uom(self):
+        if self.product_id:
+            self.product_uom = self.product_id.uom_id
+
     @api.onchange('sale_line_id')
     def onchange_sale_line_id(self):
         if self.sale_line_id:
