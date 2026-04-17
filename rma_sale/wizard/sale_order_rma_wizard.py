@@ -63,25 +63,34 @@ class SaleOrderRmaWizard(models.TransientModel):
             "base.group_portal"
         ) or self.env.user.has_group("base.group_public")
         lines = self.line_ids.filtered(lambda r: r.quantity > 0.0)
-        val_list = [line._prepare_rma_values() for line in lines]
+        if not lines:
+            return self.env["rma"]
+        partner_shipping = self.partner_shipping_id or self.order_id.partner_shipping_id
+        rma_vals = {
+            "partner_id": self.order_id.partner_id.id,
+            "partner_invoice_id": self.order_id.partner_invoice_id.id,
+            "partner_shipping_id": partner_shipping.id,
+            "origin": self.order_id.name,
+            "company_id": self.order_id.company_id.id,
+            "location_id": self.location_id.id,
+            "order_id": self.order_id.id,
+            "operation_id": self.operation_id.id,
+            "line_ids": [line._prepare_rma_line_values() for line in lines],
+        }
         rma_model = (
             self.env["rma"].with_user(SUPERUSER_ID)
             if user_has_group_portal
             else self.env["rma"]
         )
-        rma = rma_model.create(val_list)
+        rma = rma_model.create([rma_vals])
         if from_portal:
             rma._add_message_subscribe_partner()
-        # post messages
-        msg_list = [
-            '<a href="#" data-oe-model="rma" data-oe-id="%d">%s</a>' % (r.id, r.name)
-            for r in rma
-        ]
-        msg = Markup(", ".join(msg_list))
-        if len(msg_list) == 1:
-            self.order_id.message_post(body=_(msg + " has been created."))
-        elif len(msg_list) > 1:
-            self.order_id.message_post(body=_(msg + " have been created."))
+        self.order_id.message_post(
+            body=_(
+                '<a href="#" data-oe-model="rma" data-oe-id="%d">%s</a> has been created.'
+                % (rma.id, rma.name)
+            )
+        )
         rma.message_post_with_source(
             "mail.message_origin_link",
             render_values={"self": rma, "origin": self.order_id},
@@ -244,28 +253,16 @@ class SaleOrderLineRmaWizard(models.TransientModel):
                     )
                 )
 
-    def _prepare_rma_values(self):
+    def _prepare_rma_line_values(self):
         self.ensure_one()
-        partner_shipping = (
-            self.wizard_id.partner_shipping_id or self.order_id.partner_shipping_id
-        )
         description = (self.description or "") + (
             self.wizard_id.custom_description or ""
         )
-        return {
-            "partner_id": self.order_id.partner_id.id,
-            "partner_invoice_id": self.order_id.partner_invoice_id.id,
-            "partner_shipping_id": partner_shipping.id,
-            "origin": self.order_id.name,
-            "company_id": self.order_id.company_id.id,
-            "location_id": self.wizard_id.location_id.id,
-            "order_id": self.order_id.id,
-            "picking_id": self.picking_id.id,
-            "move_id": self.move_id.id,
+        return (0, 0, {
             "product_id": self.product_id.id,
-            "product_uom_qty": self.quantity,
+            "qty": self.quantity,
             "product_uom": self.uom_id.id,
-            "operation_id": self.operation_id.id,
+            "sale_line_id": self.sale_line_id.id,
+            "move_id": self.move_id.id,
             "description": description,
-            "return_product_id": self.return_product_id.id,
-        }
+        })
