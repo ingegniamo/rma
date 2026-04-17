@@ -868,6 +868,7 @@ class Rma(models.Model):
                 vals["price_unit"] = rma_line.price_unit
                 vals["rma_line_id"] = rma_line.id
                 vals["tax_ids"] = [(6, 0, rma_line.tax_ids.ids)]
+                vals["account_line_id"] = rma_line.account_line_id.id
                 procurements.append(
                     group_model.Procurement(
                         product,

@@ -145,5 +145,6 @@ class StockRule(models.Model):
             "price_unit",
             "rma_line_id",
             "tax_ids",
+            "account_line_id",
         ]
         return move_fields
