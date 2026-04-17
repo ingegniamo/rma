@@ -864,6 +864,10 @@ class Rma(models.Model):
                 if not rma_line._product_is_storable():
                     continue
                 product = rma_line.product_id
+                vals = rma._prepare_reception_procurement_vals(group)
+                vals["price_unit"] = rma_line.price_unit
+                vals["rma_line_id"] = rma_line.id
+                vals["tax_ids"] = [(6, 0, rma_line.tax_ids.ids)]
                 procurements.append(
                     group_model.Procurement(
                         product,
@@ -873,7 +877,7 @@ class Rma(models.Model):
                         product.display_name,
                         group.name,
                         rma.company_id,
-                        rma._prepare_reception_procurement_vals(group),
+                        vals,
                     )
                 )
         return procurements
@@ -1052,7 +1056,11 @@ class Rma(models.Model):
     def action_cancel(self):
         """Invoked when 'Cancel' button in rma form view is clicked."""
         (self.reception_move_ids | self.reception_move_id)._action_cancel()
-        self.write({"state": "cancelled"})
+        self.write({
+            "state": "cancelled",
+            "reception_move_ids": [(5, 0, 0)],
+            "reception_move_id": False,
+        })
 
     def action_draft(self):
         cancelled_rma = self.filtered(lambda r: r.state == "cancelled")

@@ -59,6 +59,8 @@ class RmaLine(models.Model):
     )
     price_subtotal = fields.Float(
         string='Prezzo totale',
+        compute='_compute_price_subtotal',
+        store=True,
         readonly=True,
         copy=False
     )
@@ -120,6 +122,11 @@ class RmaLine(models.Model):
         related='product_id.image_variant_1920',
         store=True
     )
+
+    @api.depends('price_unit', 'qty', 'discount')
+    def _compute_price_subtotal(self):
+        for rec in self:
+            rec.price_subtotal = rec.price_unit * rec.qty * (1 - rec.discount / 100)
 
     @api.onchange('product_id')
     def _onchange_product_id_uom(self):

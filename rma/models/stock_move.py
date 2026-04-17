@@ -142,5 +142,8 @@ class StockRule(models.Model):
             "origin_returned_move_id",
             "move_orig_ids",
             "rma_receiver_ids",
+            "price_unit",
+            "rma_line_id",
+            "tax_ids",
         ]
         return move_fields

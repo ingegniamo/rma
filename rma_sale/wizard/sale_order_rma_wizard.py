@@ -255,14 +255,17 @@ class SaleOrderLineRmaWizard(models.TransientModel):
 
     def _prepare_rma_line_values(self):
         self.ensure_one()
-        description = (self.description or "") + (
-            self.wizard_id.custom_description or ""
-        )
+        sale_line = self.sale_line_id
+        description = self.description or sale_line.name or ""
+        description += self.wizard_id.custom_description or ""
         return (0, 0, {
             "product_id": self.product_id.id,
             "qty": self.quantity,
             "product_uom": self.uom_id.id,
-            "sale_line_id": self.sale_line_id.id,
+            "sale_line_id": sale_line.id,
             "move_id": self.move_id.id,
             "description": description,
+            "price_unit": sale_line.price_unit,
+            "discount": sale_line.discount,
+            "tax_ids": [(6, 0, sale_line.tax_id.ids)],
         })

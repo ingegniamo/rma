@@ -12,9 +12,17 @@ class StockPicking(models.Model):
         compute="_compute_rma_count",
     )
 
+    def _get_linked_rmas(self):
+        return (
+            self.move_ids.rma_ids
+            | self.move_ids.rma_receiver_ids
+            | self.move_ids.rma_id
+            | self.move_ids.rma_line_id.rma_id
+        )
+
     def _compute_rma_count(self):
         for rec in self:
-            rec.rma_count = len(rec.move_ids.mapped("rma_ids"))
+            rec.rma_count = len(rec._get_linked_rmas())
 
     def copy(self, default=None):
         self.ensure_one()
@@ -31,7 +39,7 @@ class StockPicking(models.Model):
     def action_view_rma(self):
         self.ensure_one()
         action = self.env["ir.actions.act_window"]._for_xml_id("rma.rma_action")
-        rma = self.move_ids.rma_ids
+        rma = self._get_linked_rmas()
         if len(rma) == 1:
             action.update(
                 res_id=rma.id,
