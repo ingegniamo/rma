@@ -1146,7 +1146,7 @@ class Rma(models.Model):
             "partner_invoice_id",
             #"product_id",
             "location_id",
-            #"operation_id",
+            "operation_id",
         ]
         for record in self:
             if not record.line_ids:
