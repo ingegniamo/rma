@@ -1,0 +1,20 @@
+# Copyright 2024 APSL-Nagarro Antoni Marroig
+# License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
+{
+    "name": "RMA Repair",
+    "summary": "Create a repair order from rma",
+    "version": "19.0.1.0.0",
+    "category": "RMA",
+    "website": "https://github.com/ingegniamo/rma",
+    "author": "Antoni Marroig, Odoo Community Association (OCA), STeSI Consulting",
+    "license": "AGPL-3",
+    "application": False,
+    "installable": True,
+    "depends": ["rma", "repair"],
+    "data": [
+        "data/rma_operation_data.xml",
+        "views/rma_operation.xml",
+        "views/rma_views.xml",
+        "views/repair_views.xml",
+    ],
+}
