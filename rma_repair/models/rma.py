@@ -1,7 +1,7 @@
 # Copyright 2024 APSL-Nagarro Antoni Marroig
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-from odoo import _, api, fields, models
+from odoo import api, fields, models
 
 
 class RMA(models.Model):
@@ -80,7 +80,7 @@ class RMA(models.Model):
             {
                 "view_mode": "form",
                 "views": [(False, "form")],
-                "name": _("Create Repair Order"),
+                "name": self.env._("Create Repair Order"),
                 "context": self._get_repair_order_default_vals(),
             }
         )

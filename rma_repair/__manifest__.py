@@ -5,7 +5,7 @@
     "summary": "Create a repair order from rma",
     "version": "19.0.1.0.0",
     "category": "RMA",
-    "website": "https://github.com/ingegniamo/rma",
+    "website": "https://github.com/OCA/rma",
     "author": "Antoni Marroig, Odoo Community Association (OCA), STeSI Consulting",
     "license": "AGPL-3",
     "application": False,
