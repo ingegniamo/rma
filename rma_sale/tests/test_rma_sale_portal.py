@@ -45,7 +45,7 @@ class TestRmaSalePortal(TestRmaSaleBase, HttpCase):
         )
 
     def test_rma_sale_portal(self):
-        self.start_tour("/", "rma_sale_portal", login="rma_portal")
+        self.start_tour("/my/orders", "rma_sale_portal", login="rma_portal")
         rma = self.sale_order.rma_ids
         # Check that the portal values are properly transmited
         self.assertEqual(rma.state, "draft")
