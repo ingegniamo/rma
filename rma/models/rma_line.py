@@ -148,14 +148,18 @@ class RmaLine(models.Model):
     @api.onchange('account_line_id')
     def onchange_account_line_id(self):
         if self.account_line_id:
-            self.write({
+            vals = {
                 'product_id': self.account_line_id.product_id,
                 'description': self.account_line_id.name,
-                'qty': self.account_line_id.quantity,
                 'tax_ids': self.account_line_id.tax_ids,
                 'price_unit': self.account_line_id.price_unit,
                 'discount': self.account_line_id.discount,
-            })
+            }
+            # Keep the quantity already set on the RMA line (ticket 18043);
+            # take the invoiced one only when the line has none yet.
+            if not self.qty:
+                vals['qty'] = self.account_line_id.quantity
+            self.write(vals)
 
     def _product_is_storable(self, product=None):
         product = product or self.product_id
