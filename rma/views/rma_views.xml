@@ -383,7 +383,7 @@
                                     <field name="company_id" column_invisible="1" />
                                     <field name="discount" string="Sconto %" optional="hide" />
                                     <field name="price_subtotal" string="Imponibile" optional="hide" />
-                                    <field name="account_line_id" column_invisible="parent.type_operation != 'refund'" context="{'show_move_id': True}" options="{'no_open': True,'no_create':True}" domain="[                                            ('move_id.partner_id', 'child_of', partner_id),                                            ('product_id', '=', product_id),                                             ('display_type', '=', 'product'),                                             ('move_id.move_type','=', 'out_invoice')                                             ]" />
+                                    <field name="account_line_id" column_invisible="parent.type_operation != 'refund'" context="{'show_move_id': True}" options="{'no_open': True,'no_create':True}" domain="[                                            ('move_id.partner_id', 'child_of', parent.commercial_partner_id),                                            ('product_id', '=', product_id),                                             ('display_type', '=', 'product'),                                             ('move_id.move_type','=', 'out_invoice'),                                             ('move_id.state', '!=', 'cancel')                                             ]" />
                                     <field name="sale_line_id" string="Riga Ordine" />
                                     <field name="state" string="Stato" />
                                 </tree>
